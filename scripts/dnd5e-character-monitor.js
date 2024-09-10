@@ -352,7 +352,7 @@ Hooks.on('preUpdateItem', async (item, diff, options, userID) => {
     if (!(isEquip || isQuantity || isSpellPrep || isFeat || isAttune)) return;
 
     const whisper = game.settings.get(moduleID, 'showGMonly')
-        ? game.users.filter(u => item.parent.testUserPermission(u, CONST.DOCUMENT_PERMISSION_LEVELS.OWNER)).map(u => u.id)
+        ? game.users.filter(u => item.parent.testUserPermission(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)).map(u => u.id)
         : null;
 
     const characterName = game.settings.get(moduleID, 'useTokenName') ? (actor.token?.name || actor.prototypeToken.name) : actor.name;
