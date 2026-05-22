@@ -166,11 +166,17 @@ Hooks.once('init', async () => {
         `${templateDir}/toggleSheetMode.hbs`
     ]);
 
-    const sheetClass = game.dnd5e.applications.actor.CharacterActorSheet ?? game.dnd5e.applications.actor.ActorSheet5eCharacter2;
-    if (sheetClass?.prototype._onChangeSheetMode) {
-        libWrapper.register(moduleID, `game.dnd5e.applications.actor.${sheetClass.name}.prototype._onChangeSheetMode`, toggleSheetMode, 'WRAPPER');
-    } else {
-        console.warn(`${moduleID} | Could not find _onChangeSheetMode on character sheet class, sheet mode monitoring disabled.`);
+    // Sheet mode monitoring: use hook since _onChangeSheetMode no longer exists in dnd5e 5.3+ AppV2 sheets
+    if (game.settings.get(moduleID, 'monitorSheetMode')) {
+        let sheetModes = new Map();
+        Hooks.on('renderCharacterActorSheet', (app, html, data) => {
+            const newMode = app._mode;
+            const prevMode = sheetModes.get(app.id);
+            sheetModes.set(app.id, newMode);
+            if (prevMode !== undefined && prevMode !== newMode) {
+                _notifySheetModeChange(app);
+            }
+        });
     }
     libWrapper.register(moduleID, 'CONFIG.Item.documentClass.prototype.prepareData', prepareItem, 'WRAPPER');
 });
@@ -215,18 +221,13 @@ Hooks.once('socketlib.ready', () => {
 });
 
 
-Hooks.on('renderChatMessage', (message, html, appData) => {
-    // v14: html is HTMLElement; v12/v13: html may be jQuery (array-like)
-    const el = html instanceof HTMLElement ? html : html?.[0];
-    if (!el) return;
-
-    const flags = message.flags?.[moduleID] ?? appData?.message?.flags?.[moduleID];
-    if (!flags) return;
+Hooks.on('renderChatMessageHTML', (message, html) => {
+    if (!message.flags?.[moduleID]) return;
 
     const monitorType = message.getFlag(moduleID, 'monitorType');
     if (monitorType) {
-        el.classList.add('dnd5e-cm', `dnd5e-cm-${monitorType}`);
-        const header = el.querySelector('header');
+        html.classList.add('dnd5e-cm', `dnd5e-cm-${monitorType}`);
+        const header = html.querySelector('header');
         if (header) header.style.display = 'none';
     }
 });
@@ -482,20 +483,17 @@ function setCSSvariables() {
     // root.style.setProperty('--dnd5e-cm-display', display);
 }
 
-async function toggleSheetMode(wrapped, event) {
-    await wrapped(event);
-    if (!game.settings.get(moduleID, 'monitorSheetMode')) return;
-
+async function _notifySheetModeChange(app) {
     const flags = {
         [moduleID]: {
             monitorType: 'sheetMode'
         }
     };
 
-    const actor = this.actor
+    const actor = app.document;
     const templateData = {
         characterName: game.settings.get(moduleID, 'useTokenName') ? (actor.token?.name || actor.prototypeToken.name) : actor.name,
-        sheetMode: this._mode === 1 ? game.i18n.localize('DND5E.SheetModePlay') : game.i18n.localize('DND5E.SheetModeEdit')
+        sheetMode: app._mode === 1 ? game.i18n.localize('DND5E.SheetModePlay') : game.i18n.localize('DND5E.SheetModeEdit')
     };
     const content = await renderTemplate(`modules/${moduleID}/templates/toggleSheetMode.hbs`, templateData);
 
