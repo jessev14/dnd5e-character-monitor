@@ -166,23 +166,42 @@ Hooks.once('init', async () => {
         `${templateDir}/toggleSheetMode.hbs`
     ]);
 
-    libWrapper.register(moduleID, 'game.dnd5e.applications.actor.ActorSheet5eCharacter2.prototype._onChangeSheetMode', toggleSheetMode, 'WRAPPER');
+    const sheetClass = game.dnd5e.applications.actor.CharacterActorSheet ?? game.dnd5e.applications.actor.ActorSheet5eCharacter2;
+    if (sheetClass?.prototype._onChangeSheetMode) {
+        libWrapper.register(moduleID, `game.dnd5e.applications.actor.${sheetClass.name}.prototype._onChangeSheetMode`, toggleSheetMode, 'WRAPPER');
+    } else {
+        console.warn(`${moduleID} | Could not find _onChangeSheetMode on character sheet class, sheet mode monitoring disabled.`);
+    }
     libWrapper.register(moduleID, 'CONFIG.Item.documentClass.prototype.prepareData', prepareItem, 'WRAPPER');
 });
 
 Hooks.once('setup', async () => {
     if (game.settings.get(moduleID, 'showToggle')) {
         Hooks.on('getSceneControlButtons', controls => {
-            const bar = controls.find(c => c.name === 'token');
-            bar.tools.push({
-                name: 'Character Monitor',
-                title: game.i18n.localize('characterMonitor.control.title'),
-                icon: 'fas fa-exchange-alt',
-                visible: game.user.isGM,
-                toggle: true,
-                active: game.settings.get(moduleID, 'cmToggle'),
-                onClick: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
-            });
+            // v14+: controls is a Record<string, SceneControl>
+            if (controls.tokens?.tools) {
+                controls.tokens.tools.characterMonitor = {
+                    name: 'characterMonitor',
+                    title: game.i18n.localize('characterMonitor.control.title'),
+                    icon: 'fas fa-exchange-alt',
+                    visible: game.user.isGM,
+                    toggle: true,
+                    active: game.settings.get(moduleID, 'cmToggle'),
+                    onChange: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
+                };
+            } else {
+                // v12/v13 fallback: controls is an array
+                const bar = controls.find(c => c.name === 'token');
+                if (bar) bar.tools.push({
+                    name: 'Character Monitor',
+                    title: game.i18n.localize('characterMonitor.control.title'),
+                    icon: 'fas fa-exchange-alt',
+                    visible: game.user.isGM,
+                    toggle: true,
+                    active: game.settings.get(moduleID, 'cmToggle'),
+                    onClick: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
+                });
+            }
         });
     }
 
@@ -196,14 +215,19 @@ Hooks.once('socketlib.ready', () => {
 });
 
 
-Hooks.on('renderChatMessage', (app, [html], appData) => {
-    if (!appData.message.flags[moduleID] || !html) return;
+Hooks.on('renderChatMessage', (message, html, appData) => {
+    // v14: html is HTMLElement; v12/v13: html may be jQuery (array-like)
+    const el = html instanceof HTMLElement ? html : html?.[0];
+    if (!el) return;
 
-    const message = game.messages.get(appData.message._id);
+    const flags = message.flags?.[moduleID] ?? appData?.message?.flags?.[moduleID];
+    if (!flags) return;
+
     const monitorType = message.getFlag(moduleID, 'monitorType');
     if (monitorType) {
-        html.classList.add('dnd5e-cm', `dnd5e-cm-${monitorType}`);
-        html.querySelector('header').style.display = 'none';
+        el.classList.add('dnd5e-cm', `dnd5e-cm-${monitorType}`);
+        const header = el.querySelector('header');
+        if (header) header.style.display = 'none';
     }
 });
 
