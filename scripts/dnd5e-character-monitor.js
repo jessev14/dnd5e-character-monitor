@@ -166,23 +166,48 @@ Hooks.once('init', async () => {
         `${templateDir}/toggleSheetMode.hbs`
     ]);
 
-    libWrapper.register(moduleID, 'game.dnd5e.applications.actor.ActorSheet5eCharacter2.prototype._onChangeSheetMode', toggleSheetMode, 'WRAPPER');
+    // Sheet mode monitoring: use hook since _onChangeSheetMode no longer exists in dnd5e 5.3+ AppV2 sheets
+    if (game.settings.get(moduleID, 'monitorSheetMode')) {
+        let sheetModes = new Map();
+        Hooks.on('renderCharacterActorSheet', (app, html, data) => {
+            const newMode = app._mode;
+            const prevMode = sheetModes.get(app.id);
+            sheetModes.set(app.id, newMode);
+            if (prevMode !== undefined && prevMode !== newMode) {
+                _notifySheetModeChange(app);
+            }
+        });
+    }
     libWrapper.register(moduleID, 'CONFIG.Item.documentClass.prototype.prepareData', prepareItem, 'WRAPPER');
 });
 
 Hooks.once('setup', async () => {
     if (game.settings.get(moduleID, 'showToggle')) {
         Hooks.on('getSceneControlButtons', controls => {
-            const bar = controls.find(c => c.name === 'token');
-            bar.tools.push({
-                name: 'Character Monitor',
-                title: game.i18n.localize('characterMonitor.control.title'),
-                icon: 'fas fa-exchange-alt',
-                visible: game.user.isGM,
-                toggle: true,
-                active: game.settings.get(moduleID, 'cmToggle'),
-                onClick: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
-            });
+            // v14+: controls is a Record<string, SceneControl>
+            if (controls.tokens?.tools) {
+                controls.tokens.tools.characterMonitor = {
+                    name: 'characterMonitor',
+                    title: game.i18n.localize('characterMonitor.control.title'),
+                    icon: 'fas fa-exchange-alt',
+                    visible: game.user.isGM,
+                    toggle: true,
+                    active: game.settings.get(moduleID, 'cmToggle'),
+                    onChange: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
+                };
+            } else {
+                // v12/v13 fallback: controls is an array
+                const bar = controls.find(c => c.name === 'token');
+                if (bar) bar.tools.push({
+                    name: 'Character Monitor',
+                    title: game.i18n.localize('characterMonitor.control.title'),
+                    icon: 'fas fa-exchange-alt',
+                    visible: game.user.isGM,
+                    toggle: true,
+                    active: game.settings.get(moduleID, 'cmToggle'),
+                    onClick: async toggled => await game.settings.set(moduleID, 'cmToggle', toggled)
+                });
+            }
         });
     }
 
@@ -196,14 +221,14 @@ Hooks.once('socketlib.ready', () => {
 });
 
 
-Hooks.on('renderChatMessage', (app, [html], appData) => {
-    if (!appData.message.flags[moduleID] || !html) return;
+Hooks.on('renderChatMessageHTML', (message, html) => {
+    if (!message.flags?.[moduleID]) return;
 
-    const message = game.messages.get(appData.message._id);
     const monitorType = message.getFlag(moduleID, 'monitorType');
     if (monitorType) {
         html.classList.add('dnd5e-cm', `dnd5e-cm-${monitorType}`);
-        html.querySelector('header').style.display = 'none';
+        const header = html.querySelector('header');
+        if (header) header.style.display = 'none';
     }
 });
 
@@ -458,20 +483,17 @@ function setCSSvariables() {
     // root.style.setProperty('--dnd5e-cm-display', display);
 }
 
-async function toggleSheetMode(wrapped, event) {
-    await wrapped(event);
-    if (!game.settings.get(moduleID, 'monitorSheetMode')) return;
-
+async function _notifySheetModeChange(app) {
     const flags = {
         [moduleID]: {
             monitorType: 'sheetMode'
         }
     };
 
-    const actor = this.actor
+    const actor = app.document;
     const templateData = {
         characterName: game.settings.get(moduleID, 'useTokenName') ? (actor.token?.name || actor.prototypeToken.name) : actor.name,
-        sheetMode: this._mode === 1 ? game.i18n.localize('DND5E.SheetModePlay') : game.i18n.localize('DND5E.SheetModeEdit')
+        sheetMode: app._mode === 1 ? game.i18n.localize('DND5E.SheetModePlay') : game.i18n.localize('DND5E.SheetModeEdit')
     };
     const content = await renderTemplate(`modules/${moduleID}/templates/toggleSheetMode.hbs`, templateData);
 
