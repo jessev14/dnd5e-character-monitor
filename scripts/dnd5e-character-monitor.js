@@ -185,8 +185,8 @@ Hooks.once('setup', async () => {
     if (game.settings.get(moduleID, 'showToggle')) {
         Hooks.on('getSceneControlButtons', controls => {
             // v14+: controls is a Record<string, SceneControl>
-            if (controls.tokens?.tools) {
-                controls.tokens.tools.characterMonitor = {
+            if (controls.token?.tools) {
+                controls.token.tools.characterMonitor = {
                     name: 'characterMonitor',
                     title: game.i18n.localize('characterMonitor.control.title'),
                     icon: 'fas fa-exchange-alt',
@@ -477,7 +477,7 @@ async function _processItemPreUpdate(item, diff, actor, { isEquip, isQuantity, i
         };
         await socket.executeAsGM('createMessage', flags, content, whisper);
     }
-});
+}
 
 
 function createMessage(flags, content, whisper) {

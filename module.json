@@ -2,7 +2,7 @@
     "id": "dnd5e-character-monitor",
     "title": "D&D5e Character Monitor",
     "description": "Log an alert in chat when certain changes to an actor are made.",
-    "version": "2.1.2",
+    "version": "2.1.3",
     "authors": [
         {
             "name": "enso",
