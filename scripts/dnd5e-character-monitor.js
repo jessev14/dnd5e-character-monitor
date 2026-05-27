@@ -232,11 +232,18 @@ Hooks.on('renderChatMessageHTML', (message, html) => {
     }
 });
 
-Hooks.on('preUpdateActor', async (actor, diff, options, userID) => {
+Hooks.on('preUpdateActor', (actor, diff, options, userID) => {
     if (actor.type !== 'character') return;
     if (game.system.id === 'dnd5e' && "isAdvancement" in options) return;
     if (game.settings.get(moduleID, 'showToggle') && !game.settings.get(moduleID, 'cmToggle')) return;
 
+    // Fire and forget — never block the update pipeline
+    _processActorPreUpdate(actor, diff).catch(err =>
+        console.error(`${moduleID} | Error in preUpdateActor handler:`, err)
+    );
+});
+
+async function _processActorPreUpdate(actor, diff) {
     const whisper = game.settings.get(moduleID, 'showGMonly')
         ? game.users.filter(u => u.isGM).map(u => u.id)
         : [];
@@ -259,8 +266,9 @@ Hooks.on('preUpdateActor', async (actor, diff, options, userID) => {
             if (isValueUnchanged && isMaxUnchanged) continue;
 
             const levelNum = parseInt(spellLevel.slice(-1));
+            const spellLabel = CONFIG.DND5E.spellLevels?.[levelNum] ?? `Level ${levelNum}`;
             templateData.spellSlot = {
-                label: CONFIG.DND5E.spellLevels[levelNum],
+                label: spellLabel,
                 value: (hasValue ? newSpellData.value : oldSpellData.value) || 0,
                 max: (newMax ?? oldSpellData.max) || 0
             }
@@ -303,8 +311,8 @@ Hooks.on('preUpdateActor', async (actor, diff, options, userID) => {
             if (typeof changes.value !== 'number') continue;
 
             templateData.proficiency = {
-                label: CONFIG.DND5E.skills[skl].label,
-                value: CONFIG.DND5E.proficiencyLevels[changes.value]
+                label: CONFIG.DND5E.skills[skl]?.label ?? skl,
+                value: CONFIG.DND5E.proficiencyLevels?.[changes.value] ?? changes.value
             };
             const oldValue = actor.system.skills[skl].value;
             if (oldValue === changes.value) continue;
@@ -318,7 +326,7 @@ Hooks.on('preUpdateActor', async (actor, diff, options, userID) => {
             await socket.executeAsGM('createMessage', flags, content, whisper);
         }
     }
-});
+}
 
 Hooks.on('updateActor', async (actor, diff, options, userID) => {
     if (!game.settings.get(moduleID, 'monitorHP')) return;
@@ -358,8 +366,8 @@ Hooks.on('updateActor', async (actor, diff, options, userID) => {
     }
 });
 
-Hooks.on('preUpdateItem', async (item, diff, options, userID) => {
-    if (game.settings.get(moduleID, 'cmToggle') && !game.settings.get(moduleID, 'cmToggle')) return;
+Hooks.on('preUpdateItem', (item, diff, options, userID) => {
+    if (game.settings.get(moduleID, 'showToggle') && !game.settings.get(moduleID, 'cmToggle')) return;
     if (item.parent?.type !== 'character') return;
 
     const actor = item.parent;
@@ -377,6 +385,13 @@ Hooks.on('preUpdateItem', async (item, diff, options, userID) => {
 
     if (!(isEquip || isQuantity || isSpellPrep || isFeat || isAttune)) return;
 
+    // Fire and forget — never block the update pipeline
+    _processItemPreUpdate(item, diff, actor, { isEquip, isQuantity, isSpellPrep, isFeat, isAttune }).catch(err =>
+        console.error(`${moduleID} | Error in preUpdateItem handler:`, err)
+    );
+});
+
+async function _processItemPreUpdate(item, diff, actor, { isEquip, isQuantity, isSpellPrep, isFeat, isAttune }) {
     const whisper = game.settings.get(moduleID, 'showGMonly')
         ? game.users.filter(u => item.parent.testUserPermission(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)).map(u => u.id)
         : null;
